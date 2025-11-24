@@ -133,7 +133,7 @@ async def classplus_txt(app, message):
                             response = s.get(f"{apiurl}/v2/courses?tabCategoryId=1", headers=headers)  # Corrected indentation here
                             if response.status_code == 200:
                                 courses = response.json()["data"]["courses"]
-                                s.session_data = {"token": token, "courses": {course["id"]: course["name"] for course in courses}}
+                                s.session_data = {"token": token, "courses": {course["id"]: {"name": course["name"], "thumb": course.get("courseThumbnail", "https://ali-cdn-cp-assets-public.classplus.co/cams/cards-icon/default_course.png")} for course in courses}}
                                 await fetch_batches(app, message, org_name, org_code)
                             else:
                                 await message.reply("NO BATCH FOUND ")
@@ -212,7 +212,7 @@ async def classplus_txt(app, message):
                             response = s.get(f"{apiurl}/v2/courses?tabCategoryId=1", headers=headers)  # Corrected indentation here
                             if response.status_code == 200:
                                 courses = response.json()["data"]["courses"]
-                                s.session_data = {"token": token, "courses": {course["id"]: course["name"] for course in courses}}
+                                s.session_data = {"token": token, "courses": {course["id"]: {"name": course["name"], "thumb": course.get("courseThumbnail", "https://ali-cdn-cp-assets-public.classplus.co/cams/cards-icon/default_course.png")} for course in courses}}
                                 await fetch_batches(app, message, org_name, org_code)
                             
                             else:
@@ -261,7 +261,7 @@ async def classplus_txt(app, message):
                             response = s.get(f"{apiurl}/v2/courses?tabCategoryId=1", headers=headers)  # Corrected indentation here
                             if response.status_code == 200:
                                 courses = response.json()["data"]["courses"]
-                                s.session_data = {"token": token, "courses": {course["id"]: course["name"] for course in courses}}
+                                s.session_data = {"token": token, "courses": {course["id"]: {"name": course["name"], "thumb": course.get("courseThumbnail", "https://ali-cdn-cp-assets-public.classplus.co/cams/cards-icon/default_course.png")} for course in courses}}
                                 await fetch_batches(app, message, org_name, org_code)
                             else:
                                 await message.reply("NO BATCH FOUND ")
@@ -289,7 +289,7 @@ async def classplus_txt(app, message):
     
             s.session_data = {
                 "token": user_input,
-                "courses": {course["id"]: course["name"] for course in courses}
+                "courses": {course["id"]: {"name": course["name"], "thumb": course.get("courseThumbnail", "https://ali-cdn-cp-assets-public.classplus.co/cams/cards-icon/default_course.png")} for course in courses}
             }
 
             org_name = None
@@ -331,7 +331,8 @@ async def fetch_batches(app, message, org_name, org_code):
       
         text = "📚 <b>Available Batches</b>\n\n"
         course_list = []
-        for idx, (course_id, course_name) in enumerate(courses.items(), start=1):
+        for idx, (course_id, course_data) in enumerate(courses.items(), start=1):
+            course_name = course_data["name"]
             text += f"{idx}. <code>{course_name}</code>\n"
             course_list.append((idx, course_id, course_name))
         
@@ -381,7 +382,9 @@ async def extract_batch(app, message, org_name, batch_id, org_code):
     session_data = s.session_data
     
     if "token" in session_data:
-        batch_name = session_data["courses"][batch_id]
+        course_data = session_data["courses"][batch_id]
+        batch_name = course_data["name"]
+        thumb_url = course_data["thumb"]
         headers = {
             'x-access-token': session_data["token"],
             'user-agent': 'Mobile-Android',
@@ -458,12 +461,12 @@ async def extract_batch(app, message, org_name, batch_id, org_code):
                         # Encode the latter part of the URL
                         encoded_url = encode_partial_url(video_url)
                         if content_hash:
-                            encoded_url += f"*UGxCP_hash={content_hash}\n"
-                        full_info = f"{folder_path}{sub_name}: {encoded_url}"
+                            encoded_url += f"*UGxCP_hash={content_hash}"
+                        full_info = f"{folder_path}{sub_name}:{encoded_url}\n"
                         result.append(full_info)
 
                 elif content_type == "1":  # Folder
-                    new_folder_path = f"{folder_path}{sub_name} - "
+                    new_folder_path = f"{folder_path}({sub_name})"
                     tasks.append(process_course_contents(course_id, sub_id, new_folder_path))
 
             sub_contents = await asyncio.gather(*tasks)
@@ -487,6 +490,8 @@ async def extract_batch(app, message, org_name, batch_id, org_code):
                 file_path = f"{clean_name}.txt"
             
             with open(file_path, "w", encoding='utf-8') as file:
+                if thumb_url:
+                    file.write(f"Thumbnail:{thumb_url}\n")
                 file.write(''.join(extracted_data))  
             return file_path
 
