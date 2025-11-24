@@ -1,6 +1,6 @@
 build:
   docker:
-    worker: Dockerfile
+    web: Dockerfile
 
 run:
-  worker: python -m Extractor
+  web: python run.py

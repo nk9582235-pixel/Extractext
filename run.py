@@ -1,22 +1,52 @@
 #!/usr/bin/env python3
 import os
 from dotenv import load_dotenv
-import subprocess
 import sys
 import threading
 import time
+import asyncio
 
-def run_app():
-    print("🌐 Starting Web App...", flush=True)
+def start_web_server():
+    """Start a simple HTTP server for health checks"""
     try:
-        # This assumes you have an app.py in your project root.
-        subprocess.run([sys.executable, "app.py"], check=True)
-    except subprocess.CalledProcessError as e:
-        print(f"❌ Web app process error: {e}", flush=True)
-        # We don't exit here because we want the bot to keep running if possible,
-        # but on Render this will likely cause a port binding failure.
+        port = int(os.environ.get('PORT', 5000))
+        print(f"🌐 Starting web server on port {port}...", flush=True)
+        
+        # Try Flask first
+        try:
+            from app import app
+            print(f"✅ Flask app imported successfully", flush=True)
+            app.run(host="0.0.0.0", port=port, threaded=True, debug=False)
+        except Exception as e:
+            print(f"⚠️ Flask app error: {e}, trying simple HTTP server", flush=True)
+            # Fallback to simple HTTP server
+            from http.server import HTTPServer, BaseHTTPRequestHandler
+            
+            class HealthHandler(BaseHTTPRequestHandler):
+                def do_GET(self):
+                    if self.path == '/health':
+                        self.send_response(200)
+                        self.send_header('Content-type', 'application/json')
+                        self.end_headers()
+                        response = '{"status": "healthy", "service": "bot"}'
+                        self.wfile.write(response.encode())
+                    elif self.path == '/':
+                        self.send_response(200)
+                        self.send_header('Content-type', 'text/plain')
+                        self.end_headers()
+                        response = 'Hello, Render! The bot is running.'
+                        self.wfile.write(response.encode())
+                    else:
+                        self.send_response(404)
+                        self.end_headers()
+            
+            server = HTTPServer(('0.0.0.0', port), HealthHandler)
+            print(f"✅ Simple HTTP server listening on port {port}", flush=True)
+            server.serve_forever()
+            
     except Exception as e:
-        print(f"❌ Unexpected error in web app: {e}", flush=True)
+        print(f"❌ Web server error: {e}", flush=True)
+        sys.exit(1)
 
 def run_bot():
     print("🤖 Starting Telegram Bot...", flush=True)
@@ -24,11 +54,17 @@ def run_bot():
         # Ensure sessions directory exists
         os.makedirs("sessions", exist_ok=True)
         
-        # Launch the pyrogram/pyromod bot
-        subprocess.run([sys.executable, "-m", "Extractor"], check=True)
-    except subprocess.CalledProcessError as e:
-        print(f"❌ Bot process error: {e}", flush=True)
-        sys.exit(1)
+        # Import the Extractor module to initialize the bot client
+        import Extractor
+        
+        # Run the bot using the existing __main__.py functionality
+        from Extractor import __main__
+        
+        # Run the bot in a blocking way using asyncio.run
+        # This will block the thread until the bot is stopped
+        asyncio.run(__main__.sumit_boot())
+        print("✅ Bot has stopped", flush=True)
+        
     except Exception as e:
         print(f"❌ Unexpected error in bot process: {e}", flush=True)
         sys.exit(1)
@@ -42,29 +78,31 @@ if __name__ == "__main__":
     if not all([API_ID, API_HASH, BOT_TOKEN]):
         sys.exit("⚠️  Missing API_ID, API_HASH, or BOT_TOKEN in the environment")
 
-    # 3) Check if running on Heroku or Render
-    # On Render, we MUST run the web app to bind the port.
-    # On Heroku, 'DYNO' is set.
-    
     print("🚀 Starting Services...", flush=True)
     
-    # Create threads for both services
-    # We use threads instead of multiprocessing to share stdout/stderr easily and avoid fork issues
-    web_thread = threading.Thread(target=run_app, name="web_app", daemon=True)
-    bot_thread = threading.Thread(target=run_bot, name="telegram_bot", daemon=True)
-
-    # Start both
-    web_thread.start()
+    # Run the web server in the main thread to ensure proper port binding on Render
+    # Run the bot in a separate thread
+    bot_thread = threading.Thread(target=run_bot, name="telegram_bot", daemon=False)
     bot_thread.start()
-
+    
+    # Give the bot thread a moment to start
+    time.sleep(2)
+    
+    # Check if bot thread is still alive
+    if bot_thread.is_alive():
+        print("✅ Bot thread is running", flush=True)
+    else:
+        print("⚠️ Bot thread exited unexpectedly", flush=True)
+        # If bot thread exited, exit the program
+        sys.exit(1)
+    
+    # Run web server in main thread
+    start_web_server()
+    
     # Keep the main thread alive and monitor
     try:
         while True:
             time.sleep(1)
-            if not web_thread.is_alive():
-                print("⚠️ Web App thread died!", flush=True)
-                # If web app dies on Render, we should probably exit to restart the container
-                sys.exit(1)
             if not bot_thread.is_alive():
                 print("⚠️ Bot thread died!", flush=True)
                 sys.exit(1)
